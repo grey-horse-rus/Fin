@@ -1,51 +1,70 @@
-import yfinance as yf
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
+from keras import metrics
 
-apple = yf.Ticker("AAPL")
-hist = apple.history(period="1d", start="2021-05-15", end="2023-05-15")
-open_prices = hist["Open"]
-data = np.array(open_prices)
+n = 5
+data = []
 
-n = 4
+with open('data.txt', 'r') as f:
+    for line in f:
+        numbers = line.split()
+        row = [float(num) for num in numbers]
+        data.append(row)
 
-max_value = max(data)
-min_value = min(data)
+data = np.array(data)
+min_val = data.min()
+max_val = data.max()
+data_norm = (data - min_val) / (max_val - min_val)
+l = len(data_norm[0])
 
-data = [(value - min_value) / (max_value - min_value) for value in data]
-r = int(0.7*len(data))
-
+r = int(len(data_norm) * 0.7)
 x = []
 y = []
 x_test = []
 y_test = []
+triv = []
+final = []
+i = 0
 
-while len(data) > n:
-    str = data[:n]
-    if r > 0:
-        x.append(str)
-        y.append(data[n])
+while i < len(data_norm) - n:
+    new_row = []
+    if i < r:
+        for j in range(n):
+            row = data_norm[i+j]
+            new_row.extend(row)
+        x.append(new_row)
+        y.append(data_norm[i+n])
     else:
-        x_test.append(str)
-        y_test.append(data[n])
+        for j in range(n):
+            row = data_norm[i+j]
+            new_row.extend(row)
+        x_test.append(new_row)
+        y_test.append(data_norm[i + n])
+        triv.append(data_norm[i + n - 1])
+    i = i + 1
 
-    r = r - 1
-    data = data[1:]
+while i < len(data_norm):
+    final.extend(data_norm[i])
+    i = i + 1
 
-triv = y_test.copy()
-triv.insert(0, y[-1])
-triv.pop()
+x = np.array(x)
+y = np.array(y)
+x_test = np.array(x_test)
+y_test = np.array(y_test)
+final = np.array(final)
+
+mse = metrics.mean_squared_error(y_test, triv).numpy().mean()
 
 model = keras.models.Sequential([
-    keras.layers.Dense(n, input_shape=(n,)),
-    keras.layers.Dense(n, activation='relu'),
-    keras.layers.Dense(1)
+    keras.layers.Dense(n*l, input_shape=(n*l,)),
+    keras.layers.Dense(n*l),
+    keras.layers.Dense(l)
 ])
 
 model.compile(optimizer='adam', loss='mean_squared_error')
 
-train_count = 1000
+train_count = 10
 
 min_loss = float("inf")
 best_model = None
@@ -57,16 +76,13 @@ for i in range(train_count):
     if val_loss < min_loss:
         min_loss = val_loss
         best_model = model.get_weights()
-        print ("На шаге", i+1, "мин. ошибка уменьшилась до", min_loss)
+        print ("На шаге", i+1, "точность улучшилась до", min_loss / mse)
     else:
-        print("На шаге", i+1, "мин. ошибка осталась", min_loss)
+        print("На шаге", i+1, "точность по-прежнему", min_loss / mse)
         model.reset_states()
 
 model.set_weights(best_model)
 
-mse = keras.metrics.mean_squared_error(y_test, triv)
-print(f"Ошибка тривиальной модели: {mse}")
-
-final = np.array(data).reshape(-1, n)
-pred = model.predict(final, verbose=0).item() * (max_value - min_value) + min_value
-print ("Предсказание нейросети:", pred)
+final = final.reshape(1, n*l)
+pred = model.predict(final, verbose=0) * (max_val - min_val) + min_val
+print (pred)
